@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oncology AI - Diagnostic Tool</title>
+    <style>
+        /* Modernized the color palette to be different from the original */
+        :root {
+            --primary-accent: #667eea;
+            --secondary-accent: #764ba2;
+            --benign-color: #00b09b;
+            --malignant-color: #ff416c;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: linear-gradient(135deg, var(--primary-accent) 0%, var(--secondary-accent) 100%);
+            min-height: 100vh;
+            padding: 30px 15px;
+        }
+
+        .app-wrapper {
+            max-width: 950px;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+            padding: 35px;
+        }
+
+        .brand-header {
+            text-align: center;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+        }
+
+        .brand-header h1 {
+            color: #2d3436;
+            letter-spacing: -1px;
+            font-size: 2.2rem;
+        }
+
+        .legal-notice {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            font-size: 0.85rem;
+            color: #636e72;
+            margin-bottom: 30px;
+            border: 1px solid #dfe6e9;
+        }
+
+        .category-header {
+            background: #f1f2f6;
+            padding: 8px 15px;
+            border-radius: 5px;
+            color: #2d3436;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            font-weight: 700;
+            margin: 25px 0 15px;
+        }
+
+        .grid-layout {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+
+        .input-box label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #2d3436;
+        }
+
+        input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ced4da;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 30px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .btn-main { background: #2d3436; color: white; flex: 2; }
+        .btn-pos { background: var(--benign-color); color: white; }
+        .btn-neg { background: var(--malignant-color); color: white; }
+        
+        /* Result Styles */
+        .output-panel {
+            margin-top: 30px;
+            padding: 25px;
+            border-radius: 10px;
+            display: none;
+            color: white;
+            text-align: center;
+        }
+
+        .output-panel.active { display: block; }
+        .bg-benign { background: linear-gradient(to right, #11998e, #38ef7d); }
+        .bg-malignant { background: linear-gradient(to right, #cb2d3e, #ef473a); }
+
+        #spinner { display: none; text-align: center; margin: 20px; }
+    </style>
+</head>
+<body>
+
+    <div class="app-wrapper">
+        <header class="brand-header">
+            <h1>🔬 Oncology Analysis Engine</h1>
+            <p>Predictive classification of breast mass biopsy data</p>
+        </header>
+
+        <div class="legal-notice">
+            <strong>Non-Clinical Usage:</strong> This system uses a Random Forest model trained on the UCI Breast Cancer dataset. Results are generated for academic demonstration and should not influence medical decisions.
+        </div>
+
+        <form id="analysisForm">
+            <div class="category-header">Cell Nuclei Mean Attributes</div>
+            <div class="grid-layout" id="meanSection"></div>
+
+            <div class="category-header">Standard Error Metrics</div>
+            <div class="grid-layout" id="seSection"></div>
+
+            <div class="category-header">Worst Case Metrics</div>
+            <div class="grid-layout" id="worstSection"></div>
+
+            <div class="controls">
+                <button type="button" class="btn btn-pos" onclick="fetchTestData('benign')">Load Benign</button>
+                <button type="button" class="btn btn-neg" onclick="fetchTestData('malignant')">Load Malignant</button>
+                <button type="submit" class="btn btn-main">Execute AI Analysis</button>
+            </div>
+        </form>
+
+        <div id="spinner">Processing biopsy metrics...</div>
+
+        <div id="outputArea" class="output-panel">
+            <h2 id="outTitle">Analysis Complete</h2>
+            <div style="font-size: 3rem; font-weight: 800;" id="outConfidence">0%</div>
+            <p id="outDescription"></p>
+        </div>
+    </div>
+
+    <script>
+        const SCHEMA = {
+            mean: ['mean radius', 'mean texture', 'mean perimeter', 'mean area', 'mean smoothness', 'mean compactness', 'mean concavity', 'mean concave points', 'mean symmetry', 'mean fractal dimension'],
+            se: ['radius error', 'texture error', 'perimeter error', 'area error', 'smoothness error', 'compactness error', 'concavity error', 'concave points error', 'symmetry error', 'fractal dimension error'],
+            worst: ['worst radius', 'worst texture', 'worst perimeter', 'worst area', 'worst smoothness', 'worst compactness', 'worst concavity', 'worst concave points', 'worst symmetry', 'worst fractal dimension']
+        };
+
+        // UI Initialization
+        function buildInterface() {
+            Object.keys(SCHEMA).forEach(cat => {
+                const container = document.getElementById(`${cat}Section`);
+                SCHEMA[cat].forEach(field => {
+                    const id = field.replace(/ /g, '_');
+                    container.innerHTML += `
+                        <div class="input-box">
+                            <label>${field}</label>
+                            <input type="number" id="${id}" name="${field}" step="0.00001" required>
+                        </div>`;
+                });
+            });
+        }
+
+        // Fetch sample data from updated endpoint
+        async function fetchTestData(mode) {
+            try {
+                const res = await fetch('/fetch-samples');
+                const json = await res.json();
+                if (json.success) {
+                    const dataset = mode === 'benign' ? json.data.benign : json.data.malignant;
+                    Object.entries(dataset).forEach(([k, v]) => {
+                        const el = document.getElementById(k.replace(/ /g, '_'));
+                        if (el) el.value = v.toFixed(5);
+                    });
+                }
+            } catch (e) { console.error("Data fetch failed", e); }
+        }
+
+        // Handle submission to updated /predict endpoint
+        document.getElementById('analysisForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const out = document.getElementById('outputArea');
+            const load = document.getElementById('spinner');
+            
+            out.className = 'output-panel';
+            load.style.display = 'block';
+
+            const payload = {};
+            new FormData(e.target).forEach((val, key) => payload[key] = val);
+
+            try {
+                const response = await fetch('/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const reply = await response.json();
+                load.style.display = 'none';
+
+                if (reply.status === 'success') {
+                    const { result } = reply;
+                    out.classList.add('active', result.is_benign ? 'bg-benign' : 'bg-malignant');
+                    document.getElementById('outTitle').innerText = result.diagnosis_type.toUpperCase();
+                    document.getElementById('outConfidence').innerText = result.confidence_pct + '%';
+                    document.getElementById('outDescription').innerText = result.summary;
+                } else {
+                    alert("Error: " + reply.msg);
+                }
+            } catch (err) {
+                load.style.display = 'none';
+                alert("Server Connection Failed");
+            }
+        });
+
+        buildInterface();
+    </script>
+</body>
+</html>
